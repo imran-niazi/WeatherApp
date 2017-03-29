@@ -1,0 +1,37 @@
+PODS:
+  - Bond (6.1.1):
+    - Diff (~> 0.4)
+    - ReactiveKit (~> 3.4)
+  - Diff (0.5.3)
+  - ReactiveKit (3.4.2)
+  - RxCocoa (3.3.1):
+    - RxSwift (~> 3.3)
+  - RxSwift (3.3.1)
+  - Weather (1.0.1):
+    - Bond (~> 6.0)
+    - RxCocoa (~> 3.0)
+    - RxSwift (~> 3.0)
+
+DEPENDENCIES:
+  - Weather (from `https://github.com/imran-niazi/WeatherFramework.git`)
+
+EXTERNAL SOURCES:
+  Weather:
+    :git: https://github.com/imran-niazi/WeatherFramework.git
+
+CHECKOUT OPTIONS:
+  Weather:
+    :commit: 621c034ca7b6c88f98e8b1932b44e69c25901428
+    :git: https://github.com/imran-niazi/WeatherFramework.git
+
+SPEC CHECKSUMS:
+  Bond: ffe5fe3be164b5dadf1b6c7d6566f45b0f16657b
+  Diff: befa1d19c32726b2b36ce915d98793e2fbde8dcc
+  ReactiveKit: 6022ac2294a3f3c33b1692f9cc0858de510a8f62
+  RxCocoa: 7dcb7a1860fc9cd0e23dae67ab105fc2916670b6
+  RxSwift: 8fc9f2de6275a9101d518444e00bf32f1a42caac
+  Weather: df731879d050db801d14d21b858bce235554dd3a
+
+PODFILE CHECKSUM: 7a5ffd08b5751e0b02bf07fe8dfd7e601cd7ae7c
+
+COCOAPODS: 1.2.0
