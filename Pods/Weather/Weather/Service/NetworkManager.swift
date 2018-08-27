@@ -91,7 +91,7 @@ class NetworkManager
             }
             else
             {
-                print("Error download data:\(error?.localizedDescription)")
+                //print("Error download data:\(error?.localizedDescription)")
                 completion(nil, error?.localizedDescription)
             }
         }

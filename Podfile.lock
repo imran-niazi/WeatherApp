@@ -1,19 +1,27 @@
 PODS:
-  - Bond (6.1.1):
-    - Diff (~> 0.4)
-    - ReactiveKit (~> 3.4)
-  - Diff (0.5.3)
-  - ReactiveKit (3.4.2)
-  - RxCocoa (3.3.1):
-    - RxSwift (~> 3.3)
-  - RxSwift (3.3.1)
-  - Weather (1.0.1):
-    - Bond (~> 6.0)
-    - RxCocoa (~> 3.0)
-    - RxSwift (~> 3.0)
+  - Bond (6.8.3):
+    - Differ (~> 1.0)
+    - ReactiveKit (~> 3.9)
+  - Differ (1.2.3)
+  - ReactiveKit (3.9.6)
+  - RxCocoa (4.2.0):
+    - RxSwift (~> 4.0)
+  - RxSwift (4.2.0)
+  - Weather (2.0.1):
+    - Bond (~> 6.8.3)
+    - RxCocoa (~> 4.2.0)
+    - RxSwift (~> 4.2.0)
 
 DEPENDENCIES:
   - Weather (from `https://github.com/imran-niazi/WeatherFramework.git`)
+
+SPEC REPOS:
+  https://github.com/cocoapods/specs.git:
+    - Bond
+    - Differ
+    - ReactiveKit
+    - RxCocoa
+    - RxSwift
 
 EXTERNAL SOURCES:
   Weather:
@@ -21,17 +29,17 @@ EXTERNAL SOURCES:
 
 CHECKOUT OPTIONS:
   Weather:
-    :commit: 621c034ca7b6c88f98e8b1932b44e69c25901428
+    :commit: f9ff6737eb4211f49bf546e433dbb1d293e1c8d7
     :git: https://github.com/imran-niazi/WeatherFramework.git
 
 SPEC CHECKSUMS:
-  Bond: ffe5fe3be164b5dadf1b6c7d6566f45b0f16657b
-  Diff: befa1d19c32726b2b36ce915d98793e2fbde8dcc
-  ReactiveKit: 6022ac2294a3f3c33b1692f9cc0858de510a8f62
-  RxCocoa: 7dcb7a1860fc9cd0e23dae67ab105fc2916670b6
-  RxSwift: 8fc9f2de6275a9101d518444e00bf32f1a42caac
-  Weather: df731879d050db801d14d21b858bce235554dd3a
+  Bond: d6d25c0cb90459b9d27197251405c6db254da4cf
+  Differ: 061f3298ea9408494c43b530c44583e555884daf
+  ReactiveKit: 804d3093ad42dee0de19e42d4f7dcae9c14364b0
+  RxCocoa: 0b54909c902e1e581212a03e690bbd94032d8baa
+  RxSwift: 99e10317ddfcc7fbe01356aafd118fde4a0be104
+  Weather: a957960b9a2db516cfe5dc637bc9782202437e78
 
 PODFILE CHECKSUM: 7a5ffd08b5751e0b02bf07fe8dfd7e601cd7ae7c
 
-COCOAPODS: 1.2.0
+COCOAPODS: 1.5.3
