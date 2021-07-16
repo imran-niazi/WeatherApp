@@ -34,48 +34,71 @@ import Foundation
 ///
 /// where `X` conforms to `ReactiveExtensionsProvider`.
 public protocol ReactiveExtensions {
-  associatedtype Base
-  var base: Base { get }
+    associatedtype Base
+    var base: Base { get }
 }
 
 public struct Reactive<Base>: ReactiveExtensions {
-  public let base: Base
-
-  public init(_ base: Base) {
-    self.base = base
-  }
+    public let base: Base
+    
+    public init(_ base: Base) {
+        self.base = base
+    }
 }
 
 public protocol ReactiveExtensionsProvider: class {}
 
-public extension ReactiveExtensionsProvider {
-
-  /// Reactive extensions of `self`.
-  public var reactive: Reactive<Self> {
-    return Reactive(self)
-  }
-
-  /// Reactive extensions of `Self`.
-  public static var reactive: Reactive<Self>.Type {
-    return Reactive<Self>.self
-  }
+extension ReactiveExtensionsProvider {
+    
+    /// Reactive extensions of `self`.
+    public var reactive: Reactive<Self> {
+        return Reactive(self)
+    }
+    
+    /// Reactive extensions of `Self`.
+    public static var reactive: Reactive<Self>.Type {
+        return Reactive<Self>.self
+    }
 }
 
 extension NSObject: ReactiveExtensionsProvider {}
 
 #if os(macOS) || os(iOS) || os(tvOS) || os(watchOS)
 
-  extension ReactiveExtensions where Base: NSObject {
-
+extension ReactiveExtensions where Base: NSObject {
+    
     /// A signal that fires completion event when the object is deallocated.
     public var deallocated: SafeSignal<Void> {
-      return base.bag.deallocated
+        return base.bag.deallocated
     }
-
+    
     /// A `DisposeBag` that can be used to dispose observations and bindings.
     public var bag: DisposeBag {
-      return base.bag
+        return base.bag
     }
-  }
+
+    /// Create a Signal that establishes a key-value observation of the given key path when observed.
+    ///
+    /// For example:
+    ///
+    ///     let player = AVPlayer()
+    ///     player.reactive.publisher(for: \.status).sink { print("Playback status: \($0)") }
+    ///
+    public func publisher<Value>(for keyPath: KeyPath<Base, Value>, options: NSKeyValueObservingOptions = [.initial, .new]) -> Signal<Value, Never> {
+        return Signal { [weak base] observer in
+            guard let base = base else {
+                observer.receive(completion: .finished)
+                return SimpleDisposable(isDisposed: true)
+            }
+            let observation = base.observe(keyPath, options: options) { (base, change) in
+                observer.receive(base[keyPath: keyPath])
+            }
+            return BlockDisposable {
+                observation.invalidate()
+            }
+        }
+    }
+}
+
 
 #endif

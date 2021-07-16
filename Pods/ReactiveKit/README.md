@@ -1,15 +1,18 @@
 <img src="Assets/logo.png" alt="ReactiveKit" width="479" height="80">
 
-[![Platform](https://img.shields.io/cocoapods/p/ReactiveKit.svg?style=flat)](http://cocoadocs.org/docsets/ReactiveKit/)
-[![Build Status](https://travis-ci.org/DeclarativeHub/ReactiveKit.svg?branch=master)](https://travis-ci.org/DeclarativeHub/ReactiveKit)
-[![Join Us on Gitter](https://img.shields.io/badge/GITTER-join%20chat-blue.svg)](https://gitter.im/ReactiveKit/General)
+[![Platform](https://img.shields.io/badge/platform-iOS%20%7C%20macOS%20%7C%20tvOS%20%7C%20watchOS%20%7C%20Linux-green.svg)](http://cocoadocs.org/docsets/ReactiveKit/)
+[![Build Status](https://github.com/DeclarativeHub/ReactiveKit/workflows/Build%20&%20Test/badge.svg)](https://github.com/DeclarativeHub/ReactiveKit/actions?query=workflow%3A%22Build+%26+Test%22)
 [![Twitter](https://img.shields.io/badge/twitter-@srdanrasic-red.svg?style=flat)](https://twitter.com/srdanrasic)
 
-__ReactiveKit__ is a lightweight Swift framework for reactive and functional reactive programming. With just over 2000 lines of code it enables you to get into reactive world today.
+__ReactiveKit__ is a lightweight Swift framework for reactive and functional reactive programming that enables you to get into the reactive world today.
 
 The framework is compatible with all Apple platforms and Linux. If you are developing an iOS or macOS app, make sure to also check out [Bond](https://github.com/DeclarativeHub/Bond) framework that provides UIKit and AppKit bindings, reactive delegates and data sources.
 
+ReactiveKit is currently in a process of API alignment with Apple's Combine framework. Types and functions are being renamed, where applicable, to match those of Combine. It's important to note that ReactiveKit will not become a drop-in replacement for Combine. The goal is to make interoperability and transition smooth. All work is being done in a backward compatible way and will be done gradually over a number of releases. Check out [release notes](https://github.com/DeclarativeHub/ReactiveKit/releases) to follow the process.
+
 This document will introduce the framework by going through its implementation. By the end you should be equipped with a pretty good understanding of how is the framework implemented and what are the best ways to use it.
+
+_To get started quickly, clone the project and explore available tutorials in the playgrounds of the workspace!_
 
 ## Summary
 
@@ -41,6 +44,7 @@ This document will introduce the framework by going through its implementation. 
 * [Other common patterns](#other-common-patterns)
   * [Performing an action on .next event](#performing-an-action-on-next-event)
   * [Combining multiple signals](#combining-multiple-signals)
+* [Debugging](#debugging)
 * [Requirements](#requirements)
 * [Installation](#installation)
   * [Carthage](#carthage)
@@ -91,17 +95,20 @@ In order to represent errors in our sequences, we will introduce yet another kin
 Let us see how the event is defined in ReactiveKit.
 
 ```swift
-/// An event of a sequence.
-public enum Event<Element, Error: Swift.Error> {
+extension Signal {
 
-  /// An event that carries next element.
-  case next(Element)
+    /// An event of a sequence.
+    public enum Event {
 
-  /// An event that represents failure. Carries an error.
-  case failed(Error)
+        /// An event that carries next element.
+        case next(Element)
 
-  /// An event that marks the completion of a sequence.
-  case completed
+        /// An event that represents failure. Carries an error.
+        case failed(Error)
+
+        /// An event that marks the completion of a sequence.
+        case completed
+    }
 }
 ```
 
@@ -130,7 +137,7 @@ A signal represents the sequence of events. The most important thing you can do 
 
 ```swift
 /// Represents a type that receives events.
-public typealias Observer<Element, Error: Swift.Error> = (Event<Element, Error>) -> Void
+public typealias Observer<Element, Error: Swift.Error> = (Signal<Element, Error>.Event) -> Void
 ```
 
 ## Signals
@@ -167,7 +174,7 @@ Visually that would look like:
 While in the code, we would do:
 
 ```swift
-let counter = Signal<Int, NoError> { observer in
+let counter = Signal<Int, Never> { observer in
 
   // send first three positive integers
   observer(.next(1))
@@ -186,15 +193,15 @@ ReactiveKit wraps the observer into a struct with various helper methods to make
 ```swift
 /// Represents a type that receives events.
 public protocol ObserverProtocol {
+    
+    /// Type of elements being received.
+    associatedtype Element
+    
+    /// Type of error that can be received.
+    associatedtype Error: Swift.Error
 
-  /// Type of elements being received.
-  associatedtype Element
-
-  /// Type of error that can be received.
-  associatedtype Error: Swift.Error
-
-  /// Send the event to the observer.
-  func on(_ event: Event<Element, Error>)
+    /// Send the event to the observer.
+    func on(_ event: Signal<Element, Error>.Event)
 }
 ```
 
@@ -203,41 +210,41 @@ Our observer we introduced earlier is basically the `on(_:)` method. ReactiveKit
 ```swift
 public extension ObserverProtocol {
 
-  /// Convenience method to send `.next` event.
-  public func next(_ element: Element) {
-    on(.next(element))
-  }
+    /// Convenience method to send `.next` event.
+    public func receive(_ element: Element) {
+        on(.next(element))
+    }
 
-  /// Convenience method to send `.failed` event.
-  public func failed(_ error: Error) {
-    on(.failed(error))
-   }
+    /// Convenience method to send `.failed` or `.completed` event.
+    public func receive(completion: Subscribers.Completion<Error>) {
+        switch completion {
+        case .finished:
+            on(.completed)
+        case .failure(let error):
+            on(.failed(error))
+        }
+    }
 
-  /// Convenience method to send `.completed` event.
-  public func completed() {
-    on(.completed)
-  }
-
-  /// Convenience method to send `.next` event followed by a `.completed` event.
-  public func completed(with element: Element) {
-    next(element)
-    completed()
-  }
+    /// Convenience method to send `.next` event followed by a `.completed` event.
+    public func receive(lastElement element: Element) {
+        receive(element)
+        receive(completion: .finished)
+    }
 }
 ```
 
 So with ReactiveKit we can implement previous example like this:
 
 ```swift
-let counter = Signal<Int, NoError> { observer in
+let counter = Signal<Int, Never> { observer in
 
   // send first three positive integers
-  observer.next(1)
-  observer.next(2)
-  observer.next(3)
+  observer.receive(1)
+  observer.receive(2)
+  observer.receive(3)
 
   // send completed event
-  observer.completed()
+  observer.receive(completion: .finished)
 }
 ```
 
@@ -276,10 +283,10 @@ func getUser() -> Signal<User, ClientError> {
     getUser(completion: { result in
       switch result {
       case .success(let user):
-        observer.next(user)
-        observer.completed()
+        observer.receive(user)
+        observer.receive(completion: .finished)
       case .failure(let error):
-        observer.failed(error)
+        observer.receive(completion: .failure(error))
     })
     // return disposable, continue reading
   }
@@ -384,10 +391,10 @@ func getUser() -> Signal<User, ClientError> {
     let task = getUser(completion: { result in
       switch result {
       case .success(let user):
-        observer.next(user)
-        observer.completed()
+        observer.receive(user)
+        observer.receive(completion: .finished)
       case .failure(let error):
-        observer.failed(error)
+        observer.receive(completion: .failure(error))
     })
 
     return BlockDisposable {
@@ -441,7 +448,7 @@ extension SignalProtocol {
         switch event {
         case .next(let element):
           if isIncluded(element) {
-            observer.next(element)
+            observer.receive(element)
           }
         default:
           observer(event)
@@ -500,7 +507,7 @@ ReactiveKit provides following type:
 
 ```swift
 /// An error type that cannot be instantiated. Used to make signals non-failable.
-public enum NoError: Error {
+public enum Never: Error {
 }
 ```
 
@@ -509,22 +516,14 @@ An enum with no cases that conforms to `Swift.Error` protocol. Since it has no c
 For example, if we try
 
 ```swift
-let signal = Signal<Int, NoError> { observer in
+let signal = Signal<Int, Never> { observer in
   ...
   observer.failed(/* What do I send here? */)
   ...
 }
 ```
 
-we will hit the wall because we cannot create an instance of `NoError` so we cannot send `.failed` event. This is a very powerful and important feature because whenever you see a signal whose errors are specialized to `NoError` type you can safely assume that signal will not fail - because it cannot.
-
-Signals that do not fail are very common so ReactiveKit defines a typealias to make their usage simple and consistent.
-
-```swift
-public typealias SafeSignal<Element> = Signal<Element, NoError>
-```
-
-You are recommend to use `SafeSignal` whenever you have a signal that cannot fail.
+we will hit the wall because we cannot create an instance of `Never` so we cannot send `.failed` event. This is a very powerful and important feature because whenever you see a signal whose errors are specialized to `Never` type you can safely assume that signal will not fail - because it cannot.
 
 > Bindings work only with safe (non-failable) signals.
 
@@ -534,7 +533,7 @@ You are recommend to use `SafeSignal` whenever you have a signal that cannot fai
 You will often need a signal that emits just one element and then completes. To make it, use static method `just`.
 
 ```swift
-let signal = SafeSignal.just(5)
+let signal = Signal<Int, Never>.just(5)
 ```
 
 That will give you following signal:
@@ -546,7 +545,7 @@ That will give you following signal:
 If you need a signal that fires multiple elements and then completes, you can convert any `Sequence` to a signal with static method `sequence`.
 
 ```swift
-let signal = SafeSignal.sequence([1, 2, 3])
+let signal = Signal<Int, Never>.sequence([1, 2, 3])
 ```
 ```
 ---1-2-3-|--->
@@ -556,7 +555,7 @@ To create a signal that just completes without sending any elements, do
 
 
 ```swift
-let signal = SafeSignal<Int>.completed()
+let signal = Signal<Int, Never>.completed()
 ```
 ```
 ---|--->
@@ -575,7 +574,7 @@ let signal = Signal<Int, MyError>.failed(MyError.someError)
 You can also create a signal that never sends any events (i.e. a signal that never terminates).
 
 ```swift
-let signal = SafeSignal.never()
+let signal = Signal<Int, Never>.never()
 ```
 ```
 ------>
@@ -584,7 +583,7 @@ let signal = SafeSignal.never()
 Sometimes you will need a signal that sends specific element after certain amount of time passes:
 
 ```swift
-let signal = SafeSignal.timer(element: 5, time: 60)
+let signal = Signal<Int, Never>(just: 5, after: 60)
 ```
 ```
 ---/60 seconds/---5-|-->
@@ -593,7 +592,7 @@ let signal = SafeSignal.timer(element: 5, time: 60)
 Finally, when you need a signal that sends an integer every `interval` seconds, do
 
 ```swift
-let signal = SafeSignal.interval(5)
+let signal = Signal<Int, Never>(sequence: 0..., interval: 5)
 ```
 ```
 ---0---1---2---3---...>
@@ -642,10 +641,10 @@ By default observers receive events on the thread or the queue where the event i
 For example, if we have a signal that is created like
 
 ```swift
-let someImage = SafeSignal<UIImage> { observer in
+let someImage = Signal<UIImage, Never> { observer in
   ...
   DispatchQueue.global(qos: .background).async {
-    observer.next(someImage)
+    observer.receive(someImage)
   }
   ...
 }
@@ -677,10 +676,10 @@ someImage
 There is also another side to this. You might have a signal that does some slow synchronous work on whatever thread or queue it is observed on.
 
 ```swift
-let someData = SafeSignal<Data> { observer in
+let someData = Signal<Data, Never> { observer in
   ...
   let data = // synchronously load large file
-  observer.next(data)
+  observer.receive(data)
   ...
 }
 ```
@@ -716,7 +715,7 @@ Note that there are also operators `observeIn` and `executeIn`. Those operators 
 Bindings are observations with perks. Most of the time you should be able to replace observation with a binding. Consider the following example. Say we have a signal of users
 
 ```swift
-let presentUserProfile: SafeSignal<User> = ...
+let presentUserProfile: Signal<User, Never> = ...
 ```
 
 and we would like to present a profile screen when a user is sent on the signal. Usually we would do something like:
@@ -753,7 +752,7 @@ Objects that conform to `Deallocatable` provide a signal that can tell us when t
 public protocol Deallocatable: class {
 
   /// A signal that fires `completed` event when the receiver is deallocated.
-  var deallocated: SafeSignal<Void> { get }
+  var deallocated: Signal<Void, Never> { get }
 }
 ```
 
@@ -772,7 +771,7 @@ public protocol DisposeBagProvider: Deallocatable {
 
 extension DisposeBagProvider {
 
-  public var deallocated: SafeSignal<Void> {
+  public var deallocated: Signal<Void, Never> {
     return bag.deallocated
   }
 }
@@ -810,7 +809,7 @@ extension MyViewModel: BindingExecutionContextProvider {
 Now we can peek into the binding implementation.
 
 ```swift
-extension SignalProtocol where Error == NoError {
+extension SignalProtocol where Error == Never {
 
   @discardableResult
   public func bind<Target: Deallocatable>(to target: Target, setter: @escaping (Target, Element) -> Void) -> Disposable
@@ -904,7 +903,7 @@ open class Subject<Element, Error: Swift.Error>: SignalProtocol, ObserverProtoco
 
   private var observers: [Observer<Element, Error>] = []
 
-  open func on(_ event: Event<Element, Error>) {
+  open func on(_ event: Signal<Element, Error>.Event) {
     observers.forEach { $0(event) }
   }
 
@@ -920,19 +919,19 @@ Our new kind of signal, subject, is an observer itself that holds an array of it
 How do we use such subject?
 
 ```swift
-let name = Subject<String, NoError>()
+let name = Subject<String, Never>()
 
 name.observeNext { name in print("Hi \(name)!") }
 
 name.on(.next("Jim")) // prints: Hi Jim!
 
 // ReactiveKit provides few extension toon the ObserverProtocol so we can also do:
-name.next("Kathryn") // prints: Hi Kathryn!
+name.send("Kathryn") // prints: Hi Kathryn!
 
-name.completed()
+name.send(completion: .finished)
 ```
 
-> Note: When using ReactiveKit you should actually use `PublishSubject` instead. It has the same behaviour and interface as `Subject` we defined here - just a different name in order to be consistent with ReactiveX API.
+> Note: When using ReactiveKit you should actually use `PassthroughSubject` instead. It has the same behaviour and interface as `Subject` we defined here - just a different name in order to be consistent with ReactiveX API.
 
 As you can see, we do not have a producer closure, rather we send events to the subject itself. The subject then propagates those events to its own observers.
 
@@ -941,11 +940,11 @@ Subjects are useful when we need to convert actions from imperative world into s
 ```swift
 class MyViewController: UIViewController {
 
-  fileprivate let _viewDidAppear = PublishSubject<Void, NoError>()
+  fileprivate let _viewDidAppear = PassthroughSubject<Void, Never>()
 
   override viewDidAppear(_ animated: Bool) {
     super.viewDidAppear(animated)
-    _viewDidAppear.next()
+    _viewDidAppear.send()
   }
 }
 ```
@@ -956,7 +955,7 @@ We could have exposed subject publicly, but then anyone would be able to send ev
 ```swift
 extension ReactiveExtensions where Base: MyViewController {
 
-  var viewDidAppear: SafeSignal<Void> {
+  var viewDidAppear: Signal<Void, Never> {
     return base._viewDidAppear.toSignal() // convert Subject to Signal
   }
 }
@@ -977,10 +976,10 @@ As you could have inferred from the implementation, observing a subject gives us
 ```swift
 public final class ReplaySubject<Element, Error: Swift.Error>: Subject<Element, Error> {
 
-  private var buffer: [Event<Element, Error>] = []
+  private var buffer: [Signal<Element, Error>.Event] = []
 
-  public override func on(_ event: Event<Element, Error>) {
-    events.append(event)
+  public override func on(_ event: Signal<Element, Error>.Event) {
+    buffer.append(event)
     super.on(event)
   }
 
@@ -1053,7 +1052,7 @@ Trivial enough. Creating a `ConnectableSignal` with `ReplaySubject` ensures that
 
 We somehow need to convert connectable signal into a non-connectable one. In order to do that, we need to call connect at the right time and dispose at the right time. What are the right times? It is only reasonable - right time to connect is on the first observation and right time to dispose is when the last observation is disposed.
 
-In order to do this, we will keep a reference count. With each new observer, the count goes up, while on each disposal it goes down. We will connect when count goes from 0 to 1 and dispose when count goes from 1 to 0.  
+In order to do this, we will keep a reference count. With each new observer, the count goes up, while on each disposal it goes down. We will connect when count goes from 0 to 1 and dispose when count goes from 1 to 0.
 
 ```swift
 public extension ConnectableSignalProtocol {
@@ -1094,15 +1093,15 @@ Operator `retry` will only work sometimes and it will fail eventually. The resul
 How do we convert failable signal into non-failable (safe) signal? We have to handle the error somehow. One way is to recover with a default element.
 
 ```swift
-let image /*: SafeSignal<UIImage> */ = getImage().recover(with: .placeholder)
+let image /*: Signal<UIImage, Never> */ = getImage().recover(with: .placeholder)
 ```
 
-Now we get `SafeSignal` because the transformed signal will never fail. Any `.failed` event that might occur on original signal will just be replaced with `.next` event containing the default element (placeholder image in our example).
+Now we get safe `Signal` because the transformed signal will never fail. Any `.failed` event that might occur on original signal will just be replaced with `.next` event containing the default element (placeholder image in our example).
 
 Alternative way to get safe signal is to ignore - suppress - the error. You would do this if you really do not care about the error and nothing bad will happen if you ignore it.
 
 ```swift
-let image /*: SafeSignal<UIImage> */ = getImage().suppressError(logging: true)
+let image /*: Signal<UIImage, Never> */ = getImage().suppressError(logging: true)
 ```
 
 It is always a good idea to log the error.
@@ -1117,7 +1116,7 @@ let image = getImage().flatMapError { error in
 
 ### Property
 
-Property wraps mutable state into an object that enables observation of that state. Whenever the state changes, an observer will be notified. Just like the `PublishSubject`, it represents a bridge into the imperative world.
+Property wraps mutable state into an object that enables observation of that state. Whenever the state changes, an observer will be notified. Just like the `PassthroughSubject`, it represents a bridge into the imperative world.
 
 To create a property, just initialize it with the initial value.
 
@@ -1169,7 +1168,7 @@ public enum LoadingState<LoadingValue, LoadingError: Error>: LoadingStateProtoco
 A signal with elements of `LoadingState` type is typealiased as `LoadingSignal`:
 
 ```swift
-public typealias LoadingSignal<LoadingValue, LoadingError: Error> = SafeSignal<LoadingState<LoadingValue, LoadingError>>
+public typealias LoadingSignal<LoadingValue, LoadingError: Error> = Signal<LoadingState<LoadingValue, LoadingError>, Never>
 ```
 
 Notice that loading signal is a safe signal. Signal itself can never fail, but errors can be emitted as `.failed` loading state. This means that the error does not terminate the signal - new events can be received after the error.
@@ -1236,7 +1235,7 @@ extension UIViewController: LoadingStateListener {
 }
 ```
 
-Notice that `LoadingStateListener` gets `ObservedLoadingState` instead of `LoadingState`. The difference between the two is that the former has one additional state: `.reloading`. ReactiveKit will automatically convert subsequent `.loading` states into `.reloading` states so that you can potentially act differently in those two cases. 
+Notice that `LoadingStateListener` gets `ObservedLoadingState` instead of `LoadingState`. The difference between the two is that the former has one additional state: `.reloading`. ReactiveKit will automatically convert subsequent `.loading` states into `.reloading` states so that you can potentially act differently in those two cases.
 
 Now that we have a loading state listener, we can convert any loading signal into a regular safe signal by consuming its loading state by the listener:
 
@@ -1249,7 +1248,7 @@ fetchImage
     }
 ```
 
-Exciting! Operator `consumeLoadingState` takes the loading state listener and updates it each time a state is produced by the loading signal. It returns a safe signal of loading values, i.e. it unwraps the underlying value from the `.loaded` state. In our example that would be `SafeSignal<UIImage>` which we can then bind to our image view and update its content. 
+Exciting! Operator `consumeLoadingState` takes the loading state listener and updates it each time a state is produced by the loading signal. It returns a safe signal of loading values, i.e. it unwraps the underlying value from the `.loaded` state. In our example that would be `Signal<UIImage, Never>` which we can then bind to our image view and update its content.
 
 #### Transforming loading signals
 
@@ -1276,7 +1275,7 @@ class UserService {
     let user: LoadingProperty<User, ApplicationError>
 
     init(_ api: API) {
-        
+
         user = LoadingProperty {
             api.fetchUser()
         }
@@ -1295,7 +1294,7 @@ class UserService {
 Say that you have a button that (re)loads a photo in your app. How to implement that in reactive world? First we will need a signal that represents buttons taps. With [Bond](https://github.com/DeclarativeHub/Bond) framework you can get that signal just like this:
 
 ```swift
-let reload /*: SafeSignal<Void> */ = button.reactive.tap
+let reload /*: Signal<Void, Never> */ = button.reactive.tap
 ```
 
 The signal will send `.next` event whenever the button is tapped. We would like to load the photo on each such event. In order to do so, we will flat map the reload signal into photo requests.
@@ -1341,46 +1340,78 @@ All you have to provide to the operator is the signals and a closure that maps t
 
 > Reactive extensions are provided by Bond framework.
 
+## Debugging
+
+### Timelane
+
+ReactiveKit has a built-in support for [Timelane](http://timelane.tools) Xcode Instrument. Just download the instrument and start using the `lane` operator to send the signal data to the Timelane Instrument.
+
+```swift
+mySignal
+  .filter { ... }
+  .lane("My Signal")
+  .map { ... }
+  .sink {
+    ... 
+  }
+```
+
+It's a one-liner!
+
+Note that `lane` is available only on macOS 10.14, iOS 12, tvOS 12, watchOS 5 or higher. If you are compiling for older system versions, you can use `laneIfAvailable` operator for convenience, but keep in mind that event logging will then silently fail when testing on older system versions.
+
+### Debug operator
+
+You can print signal events to the console be applying a `debug` operator.
+
+```swift
+mySignal
+  .filter { ... }
+  .debug("My Signal")
+  .map { ... }
+  .sink {
+    ... 
+  }
+```
+
+### Breakpoint
+
+ReactiveKit also provides a `breakpoint` operator. It is implemented based on Combine's [breakpoint operator](https://developer.apple.com/documentation/combine/publishers/merge/3208928-breakpoint). 
+
 ## Requirements
 
-* iOS 8.0+ / macOS 10.9+ / tvOS 9.0+ / watchOS 2.0+
-* Xcode 9
+* iOS 8.0+ / macOS 10.11+ / tvOS 9.0+ / watchOS 2.0+
+* Xcode 10.2
 
 or
 
-* Linux + Swift 4.0 
+* Linux + Swift 5.0
 
 ## Installation
-
-Bond framework is optional, but recommended for Cocoa / Cocoa touch development.
-
-> Note: Since v3.7, ReactiveKit is using Swift 4 syntax that compiles under Xcode 9. If you are still using Xcode 8, please do not update to v3.7 and stay on the latest v3.6.x version.
 
 ### Carthage
 
 ```
 github "DeclarativeHub/ReactiveKit"
-github "DeclarativeHub/Bond"
 ```
 
 ### CocoaPods
 
 ```
 pod 'ReactiveKit'
-pod 'Bond'
 ```
 
 ### Swift Package Manager
 
 ```
-// swift-tools-version:4.0
+// swift-tools-version:5.0
 
 import PackageDescription
 
 let package = Package(
   name: "MyApp",
   dependencies: [
-    .package(url: "https://github.com/DeclarativeHub/ReactiveKit.git", from: "3.9.0")
+    .package(url: "https://github.com/DeclarativeHub/ReactiveKit.git", from: "3.10.0")
   ],
   targets: [
     .target(name: "MyApp", dependencies: ["ReactiveKit"])
@@ -1390,11 +1421,11 @@ let package = Package(
 
 ## Communication
 
-* If you'd like to ask a general question, use Stack Overflow or Github issues.
-* If you'd like to ask a quick question or chat about the project, try [Gitter](https://gitter.im/ReactiveKit/General).
-* If you have found a bug, open an issue or do a pull request with the fix.
-* If you have a feature request, open an issue.
-* If you want to contribute, submit a pull request (include unit tests).
+* If you'd like to ask a general question, you can [open an issue](https://github.com/DeclarativeHub/ReactiveKit/issues) or go to [StackOverflow](https://stackoverflow.com/questions/tagged/reactivekit).
+* If you have found a bug, [open an issue](https://github.com/DeclarativeHub/ReactiveKit/issues) or create a [pull request](https://github.com/DeclarativeHub/ReactiveKit/pulls) with the fix.
+* If you have a feature request, [open an issue](https://github.com/DeclarativeHub/ReactiveKit/issues) .
+* If you want to contribute, submit a [pull request](https://github.com/DeclarativeHub/ReactiveKit/pulls) (include unit tests).
+
 
 ## Additional Documentation
 
@@ -1405,7 +1436,7 @@ let package = Package(
 
 The MIT License (MIT)
 
-Copyright (c) 2015-2018 Srdan Rasic (@srdanrasic)
+Copyright (c) 2015-2020 Srdan Rasic (@srdanrasic)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

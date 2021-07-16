@@ -27,22 +27,22 @@
 import UIKit
 import ReactiveKit
 
-public extension ReactiveExtensions where Base: UIControl {
+extension ReactiveExtensions where Base: UIControl {
 
-    public func controlEvents(_ events: UIControlEvents) -> SafeSignal<Void> {
+    public func controlEvents(_ events: UIControl.Event) -> SafeSignal<Void> {
         let base = self.base
         return Signal { [weak base] observer in
             guard let base = base else {
-                observer.completed()
+                observer.receive(completion: .finished)
                 return NonDisposable.instance
             }
             let target = BNDControlTarget(control: base, events: events) {
-                observer.next(())
+                observer.receive(())
             }
-            return BlockDisposable {
+            return MainBlockDisposable {
                 target.unregister()
             }
-        }.take(until: base.deallocated)
+        }.prefix(untilOutputFrom: base.deallocated)
     }
 
     public var isEnabled: Bond<Bool> {
@@ -54,9 +54,9 @@ public extension ReactiveExtensions where Base: UIControl {
 {
     private weak var control: UIControl?
     private let observer: () -> Void
-    private let events: UIControlEvents
+    private let events: UIControl.Event
 
-    fileprivate init(control: UIControl, events: UIControlEvents, observer: @escaping () -> Void) {
+    fileprivate init(control: UIControl, events: UIControl.Event, observer: @escaping () -> Void) {
         self.control = control
         self.events = events
         self.observer = observer

@@ -26,92 +26,91 @@ import Foundation
 
 /// Represents mutable state that can be observed as a signal of events.
 public protocol PropertyProtocol {
-  associatedtype ProperyElement
-  var value: ProperyElement { get }
+    associatedtype ProperyElement
+    var value: ProperyElement { get }
 }
 
 /// Represents mutable state that can be observed as a signal of events.
-public class Property<Value>: PropertyProtocol, SubjectProtocol, BindableProtocol, DisposeBagProvider {
+public final class Property<Value>: PropertyProtocol, SubjectProtocol, BindableProtocol, DisposeBagProvider {
 
-  private var _value: Value
-  private let subject = PublishSubject<Value, NoError>()
-  private let lock = NSRecursiveLock(name: "com.reactivekit.property")
+    private let lock = NSRecursiveLock(name: "com.reactive_kit.property")
 
-  @available(*, deprecated, renamed: "bag")
-  public var disposeBag: DisposeBag {
-    return subject.disposeBag
-  }
+    private let subject: Subject<Value, Never>
 
-  public var bag: DisposeBag {
-    return subject.disposeBag
-  }
-
-  /// Underlying value. Changing it emits `.next` event with new value.
-  public var value: Value {
-    get {
-      lock.lock(); defer { lock.unlock() }
-      return _value
+    public var bag: DisposeBag {
+        return subject.disposeBag
     }
-    set {
-      lock.lock(); defer { lock.unlock() }
-      _value = newValue
-      subject.next(newValue)
+    
+    /// Underlying value. Changing it emits `.next` event with new value.
+    private var _value: Value
+    public var value: Value {
+        get {
+            lock.lock(); defer { lock.unlock() }
+            return _value
+        }
+        set {
+            lock.lock(); defer { lock.unlock() }
+            _value = newValue
+            subject.send(newValue)
+        }
     }
-  }
-
-  public init(_ value: Value) {
-    _value = value
-  }
-
-  public func on(_ event: Event<Value, NoError>) {
-    if case .next(let element) = event {
-      _value = element
+    
+    public init(_ value: Value, subject: Subject<Value, Never> = PassthroughSubject()) {
+        _value = value
+        self.subject = subject
     }
-    subject.on(event)
-  }
-
-  public func observe(with observer: @escaping (Event<Value, NoError>) -> Void) -> Disposable {
-    return subject.start(with: value).observe(with: observer)
-  }
-
-  public var readOnlyView: AnyProperty<Value> {
-    return AnyProperty(property: self)
-  }
-
-  /// Change the underlying value without notifying the observers.
-  public func silentUpdate(value: Value) {
-    _value = value
-  }
-
-  public func bind(signal: Signal<Value, NoError>) -> Disposable {
-    return signal
-      .take(until: bag.deallocated)
-      .observeIn(.nonRecursive())
-      .observeNext { [weak self] element in
-        guard let s = self else { return }
-        s.on(.next(element))
-      }
-  }
-
-  deinit {
-    subject.completed()
-  }
+    
+    public func on(_ event: Signal<Value, Never>.Event) {
+        lock.lock(); defer { lock.unlock() }
+        if case .next(let element) = event {
+            _value = element
+        }
+        subject.on(event)
+    }
+    
+    public func observe(with observer: @escaping (Signal<Value, Never>.Event) -> Void) -> Disposable {
+        lock.lock(); defer { lock.unlock() }
+        return subject.prepend(_value).observe(with: observer)
+    }
+    
+    public var readOnlyView: AnyProperty<Value> {
+        return AnyProperty(property: self)
+    }
+    
+    /// Change the underlying value without notifying the observers.
+    public func silentUpdate(value: Value) {
+        lock.lock(); defer { lock.unlock() }
+        _value = value
+    }
+    
+    public func bind(signal: Signal<Value, Never>) -> Disposable {
+        return signal
+            .prefix(untilOutputFrom: bag.deallocated)
+            .receive(on: ExecutionContext.nonRecursive())
+            .observeNext { [weak self] element in
+                self?.on(.next(element))
+            }
+    }
+    
+    deinit {
+        subject.send(completion: .finished)
+    }
 }
 
 /// Represents mutable state that can be observed as a signal of events.
 public final class AnyProperty<Value>: PropertyProtocol, SignalProtocol {
-
-  private let property: Property<Value>
-
-  public var value: Value {
-    return property.value
-  }
-
-  public init(property: Property<Value>) {
-    self.property = property
-  }
-
-  public func observe(with observer: @escaping (Event<Value, NoError>) -> Void) -> Disposable {
-    return property.observe(with: observer)
-  }
+    
+    private let property: Property<Value>
+    
+    public var value: Value {
+        return property.value
+    }
+    
+    public init(property: Property<Value>) {
+        self.property = property
+    }
+    
+    public func observe(with observer: @escaping (Signal<Value, Never>.Event) -> Void) -> Disposable {
+        return property.observe(with: observer)
+    }
 }

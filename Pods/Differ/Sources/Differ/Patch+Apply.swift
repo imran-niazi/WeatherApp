@@ -1,6 +1,6 @@
 public extension RangeReplaceableCollection {
 
-    public func apply(_ patch: [Patch<Iterator.Element>]) -> Self {
+    func apply(_ patch: [Patch<Element>]) -> Self {
         var mutableSelf = self
 
         for change in patch {

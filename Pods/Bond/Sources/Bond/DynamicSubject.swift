@@ -25,16 +25,21 @@
 import ReactiveKit
 import Foundation
 
-public typealias DynamicSubject<Element> = DynamicSubject2<Element, NoError>
+public typealias DynamicSubject<Element> = FailableDynamicSubject<Element, Never>
 
-public struct DynamicSubject2<Element, Error: Swift.Error>: SubjectProtocol, BindableProtocol {
+/// Dynamic subject is both a signal and an observer (and a binding target).
+/// It emits events when the underlying signal emits an event. Elements emitted
+/// are read from the target using the `getter` closure.
+/// Observing a signal will a dynamic subject will update the underlying target
+/// using the `setter` closure on each next event.
+public struct FailableDynamicSubject<Element, Error: Swift.Error>: SubjectProtocol, BindableProtocol {
 
     private weak var target: AnyObject?
     private var signal: Signal<Void, Error>
     private let context: ExecutionContext
     private let getter: (AnyObject) -> Result<Element, Error>
     private let setter: (AnyObject, Element) -> Void
-    private let subject = PublishSubject<Void, Error>()
+    private let subject = PassthroughSubject<Void, Error>()
     private let triggerEventOnSetting: Bool
 
     public init<Target: Deallocatable>(target: Target,
@@ -79,19 +84,19 @@ public struct DynamicSubject2<Element, Error: Swift.Error>: SubjectProtocol, Bin
         self.triggerEventOnSetting = triggerEventOnSetting
     }
 
-    public func on(_ event: Event<Element, Error>) {
+    public func on(_ event: Signal<Element, Error>.Event) {
         if case .next(let element) = event, let target = target {
             setter(target, element)
             if triggerEventOnSetting {
-                subject.next(())
+                subject.send(())
             }
         }
     }
 
-    public func observe(with observer: @escaping (Event<Element, Error>) -> Void) -> Disposable {
+    public func observe(with observer: @escaping (Signal<Element, Error>.Event) -> Void) -> Disposable {
         guard let target = target else { observer(.completed); return NonDisposable.instance }
         let getter = self.getter
-        return signal.start(with: ()).merge(with: subject).tryMap { [weak target] () -> Result<Element?, Error> in
+        return signal.prepend(()).merge(with: subject).tryMap { [weak target] () -> Result<Element?, Error> in
             if let target = target {
                 switch getter(target) {
                 case .success(let element):
@@ -102,23 +107,23 @@ public struct DynamicSubject2<Element, Error: Swift.Error>: SubjectProtocol, Bin
             } else {
                 return .success(nil)
             }
-        }.ignoreNil().take(until: (target as! Deallocatable).deallocated).observe(with: observer)
+        }.ignoreNils().prefix(untilOutputFrom: (target as! Deallocatable).deallocated).observe(with: observer)
     }
 
-    public func bind(signal: Signal<Element, NoError>) -> Disposable {
+    public func bind(signal: Signal<Element, Never>) -> Disposable {
         if let target = target {
             let setter = self.setter
             let subject = self.subject
             let context = self.context
             let triggerEventOnSetting = self.triggerEventOnSetting
-            return signal.take(until: (target as! Deallocatable).deallocated).observe { [weak target] event in
+            return signal.prefix(untilOutputFrom: (target as! Deallocatable).deallocated).observe { [weak target] event in
                 context.execute { [weak target] in
                     switch event {
                     case .next(let element):
                         guard let target = target else { return }
                         setter(target, element)
                         if triggerEventOnSetting {
-                            subject.next(())
+                            subject.send(())
                         }
                     default:
                         break
@@ -146,10 +151,10 @@ public struct DynamicSubject2<Element, Error: Swift.Error>: SubjectProtocol, Bin
 
     /// Transform the `getter` and `setter` by applying a `transform` on them.
     public func bidirectionalMap<U>(to getTransform: @escaping (Element) -> U,
-                                    from setTransform: @escaping (U) -> Element) -> DynamicSubject2<U, Error>! {
+                                    from setTransform: @escaping (U) -> Element) -> FailableDynamicSubject<U, Error>! {
         guard let target = target else { return nil }
 
-        return DynamicSubject2<U, Error>(
+        return FailableDynamicSubject<U, Error>(
             _target: target,
             signal: signal,
             context: context,
@@ -170,7 +175,7 @@ public struct DynamicSubject2<Element, Error: Swift.Error>: SubjectProtocol, Bin
 
 extension ReactiveExtensions where Base: Deallocatable {
 
-    public func dynamicSubject<Element>(signal: Signal<Void, NoError>,
+    public func dynamicSubject<Element>(signal: Signal<Void, Never>,
                                         context: ExecutionContext,
                                         triggerEventOnSetting: Bool = true,
                                         get: @escaping (Base) -> Element,
@@ -181,7 +186,7 @@ extension ReactiveExtensions where Base: Deallocatable {
 
 extension ReactiveExtensions where Base: Deallocatable, Base: BindingExecutionContextProvider {
 
-    public func dynamicSubject<Element>(signal: Signal<Void, NoError>,
+    public func dynamicSubject<Element>(signal: Signal<Void, Never>,
                                         triggerEventOnSetting: Bool = true,
                                         get: @escaping (Base) -> Element,
                                         set: @escaping (Base, Element) -> Void) -> DynamicSubject<Element> {

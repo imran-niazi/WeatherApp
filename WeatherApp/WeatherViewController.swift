@@ -36,7 +36,7 @@ class WeatherViewController: UIViewController
         searchBar
             .rx.text // Observable property thanks to RxCocoa
             .orEmpty // Make it non-optional
-            .debounce(2.0, scheduler: MainScheduler.instance) // Wait 2.0 for changes.
+            .debounce(.milliseconds(500), scheduler: MainScheduler.instance)// Wait 2.0 for changes.
             .distinctUntilChanged() // If they didn't occur, check if the new value is the same as old.
             .filter { !$0.isEmpty } // If the new value is really new, filter for non-empty query.
             .subscribe(onNext: { [unowned self] query in // Here we will be notified of every new value
@@ -44,7 +44,7 @@ class WeatherViewController: UIViewController
                 self.searchBar.resignFirstResponder()
                 self.weatherVm.searchWeatherForLocation(locationParm: query)
                 })
-            .addDisposableTo(disposeBag)
+            .disposed(by: disposeBag)
         
         //UI Binding
         self.weatherVm.locationName.bind(to: locationLabel)

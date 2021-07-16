@@ -1,7 +1,6 @@
-/*This is auto generated and auto updated file when run command pod install and pod update respectively.*/
 {
   "name": "Weather",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "summary": "This weather framework provides easy integration with weather service.",
   "homepage": "https://github.com/imran-niazi/WeatherFramework",
   "license": {
@@ -14,23 +13,24 @@
   "platforms": {
     "ios": "9.0"
   },
-  "swift_version": "4.1",
+  "swift_versions": "4.1",
   "source": {
     "git": "https://github.com/imran-niazi/WeatherFramework.git",
-    "tag": "2.0.1"
+    "tag": "2.0.2"
   },
   "source_files": "Weather/**/*.{swift}",
   "frameworks": "UIKit",
   "requires_arc": true,
   "dependencies": {
     "RxSwift": [
-      "~> 4.2.0"
+      "~> 6.1.0"
     ],
     "RxCocoa": [
-      "~> 4.2.0"
+      "~> 6.1.0"
     ],
     "Bond": [
-      "~> 6.8.3"
+      "~> 7.0"
     ]
-  }
+  },
+  "swift_version": "4.1"
 }

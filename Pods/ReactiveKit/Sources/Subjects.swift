@@ -28,204 +28,235 @@ import Foundation
 public protocol SubjectProtocol: SignalProtocol, ObserverProtocol {
 }
 
+extension SubjectProtocol {
+
+    /// Convenience method to send `.next` event.
+    public func send(_ element: Element) {
+        on(.next(element))
+    }
+
+    /// Convenience method to send `.failed` or `.completed` event.
+    public func send(completion: Subscribers.Completion<Error>) {
+        switch completion {
+        case .finished:
+            on(.completed)
+        case .failure(let error):
+            on(.failed(error))
+        }
+    }
+
+    /// Convenience method to send `.next` event followed by a `.completed` event.
+    public func send(lastElement element: Element) {
+        send(element)
+        send(completion: .finished)
+    }
+}
+
+extension SubjectProtocol where Element == Void {
+
+    /// Convenience method to send `.next` event.
+    public func send() {
+        send(())
+    }
+}
+
 /// A type that is both a signal and an observer.
+/// Subject is a base subject class, please use one of the subclassesin your code.
 open class Subject<Element, Error: Swift.Error>: SubjectProtocol {
+    
+    internal let lock = NSRecursiveLock(name: "com.reactive_kit.subject.lock")
 
-  private typealias Token = Int64
-  private var nextToken: Token = 0
+    private typealias Token = Int64
+    private var nextToken: Token = 0
+    
+    private var observers: Atomic<[(Token, Observer<Element, Error>)]> = Atomic([])
 
-  private var observers: [(Token, Observer<Element, Error>)] = []
+    public private(set) var isTerminated: Bool = false
+    
+    public let disposeBag = DisposeBag()
+    
+    public init() {}
 
-  public private(set) var isTerminated = false
-
-  public let observersLock = NSRecursiveLock(name: "reactivekit.subject.observers-lock")
-  public let dispatchLock = NSRecursiveLock(name: "reactivekit.subject.dispatch-lock")
-
-  public let disposeBag = DisposeBag()
-
-  public init() {}
-
-  public func on(_ event: Event<Element, Error>) {
-    dispatchLock.lock(); defer { dispatchLock.unlock() }
-    guard !isTerminated else { return }
-    isTerminated = event.isTerminal
-    send(event)
-  }
-
-  open func send(_ event: Event<Element, Error>) {
-    forEachObserver { $0(event) }
-  }
-
-  open func observe(with observer: @escaping Observer<Element, Error>) -> Disposable {
-    observersLock.lock(); defer { observersLock.unlock() }
-    willAdd(observer: observer)
-    return add(observer: observer)
-  }
-
-  open func willAdd(observer: @escaping Observer<Element, Error>) {
-  }
-
-  private func add(observer: @escaping Observer<Element, Error>) -> Disposable {
-    let token = nextToken
-    nextToken = nextToken + 1
-
-    observers.append((token, observer))
-
-    return BlockDisposable { [weak self] in
-      guard let me = self else { return }
-      me.observersLock.lock(); defer { me.observersLock.unlock() }
-      guard let index = me.observers.index(where: { $0.0 == token }) else { return }
-      me.observers.remove(at: index)
+    open func on(_ event: Signal<Element, Error>.Event) {
+        guard !isTerminated else { return }
+        isTerminated = event.isTerminal
+        for (_, observer) in observers.value {
+            observer(event)
+        }
     }
-  }
-
-  private func forEachObserver(_ execute: (Observer<Element, Error>) -> Void) {
-    for (_, observer) in observers {
-      execute(observer)
+    
+    open func observe(with observer: @escaping Observer<Element, Error>) -> Disposable {
+        let token = nextToken
+        nextToken += 1
+        observers.mutate {
+            $0.append((token, observer))
+        }
+        return BlockDisposable { [weak self] in
+            self?.observers.mutate {
+                $0.removeAll(where: { (t, _) in t == token })
+            }
+        }
     }
-  }
 }
 
 extension Subject: BindableProtocol {
-
-  public func bind(signal: Signal<Element, NoError>) -> Disposable {
-    return signal
-      .take(until: disposeBag.deallocated)
-      .observeIn(.nonRecursive())
-      .observeNext { [weak self] element in
-        guard let s = self else { return }
-        s.on(.next(element))
+    
+    public func bind(signal: Signal<Element, Never>) -> Disposable {
+        return signal
+            .prefix(untilOutputFrom: disposeBag.deallocated)
+            .receive(on: ExecutionContext.nonRecursive())
+            .observeNext { [weak self] element in
+                guard let s = self else { return }
+                s.on(.next(element))
+            }
     }
-  }
 }
 
 /// A subject that propagates received events to the registered observes.
-public final class PublishSubject<Element, Error: Swift.Error>: Subject<Element, Error> {}
+public final class PassthroughSubject<Element, Error: Swift.Error>: Subject<Element, Error> {
+
+    public override init() {
+        super.init()
+    }
+
+    public override func on(_ event: Signal<Element, Error>.Event) {
+        lock.lock(); defer { lock.unlock() }
+        super.on(event)
+    }
+
+    public override func observe(with observer: @escaping (Signal<Element, Error>.Event) -> Void) -> Disposable {
+        lock.lock(); defer { lock.unlock() }
+        return super.observe(with: observer)
+    }
+}
 
 /// A subject that replies accumulated sequence of events to each observer.
 public final class ReplaySubject<Element, Error: Swift.Error>: Subject<Element, Error> {
 
-  private var buffer: ArraySlice<Event<Element, Error>> = []
-  public let bufferSize: Int
+    private var _buffer: ArraySlice<Signal<Element, Error>.Event> = []
 
-  public init(bufferSize: Int = Int.max) {
-    if bufferSize < Int.max {
-      self.bufferSize = bufferSize + 1 // plus terminal event
-    } else {
-      self.bufferSize = bufferSize
+    public let bufferSize: Int
+    
+    public init(bufferSize: Int = Int.max) {
+        if bufferSize < Int.max {
+            self.bufferSize = bufferSize + 1 // plus terminal event
+        } else {
+            self.bufferSize = bufferSize
+        }
     }
-  }
+    
+    public override func on(_ event: Signal<Element, Error>.Event) {
+        lock.lock(); defer { lock.unlock() }
+        guard !isTerminated else { return }
+        _buffer.append(event)
+        _buffer = _buffer.suffix(bufferSize)
+        super.on(event)
+    }
 
-  public override func send(_ event: Event<Element, Error>) {
-    buffer.append(event)
-    buffer = buffer.suffix(bufferSize)
-    super.send(event)
-  }
-
-  public override func willAdd(observer: @escaping Observer<Element, Error>) {
-    buffer.forEach(observer)
-  }
+    public override func observe(with observer: @escaping (Signal<Element, Error>.Event) -> Void) -> Disposable {
+        lock.lock(); defer { lock.unlock() }
+        let buffer = _buffer
+        buffer.forEach(observer)
+        return super.observe(with: observer)
+    }
 }
+
+/// A ReplaySubject compile-time guaranteed never to emit an error.
+public typealias SafeReplaySubject<Element> = ReplaySubject<Element, Never>
 
 /// A subject that replies latest event to each observer.
 public final class ReplayOneSubject<Element, Error: Swift.Error>: Subject<Element, Error> {
 
-  private var lastEvent: Event<Element, Error>? = nil
-  private var terminalEvent: Event<Element, Error>? = nil
+    private var _lastEvent: Signal<Element, Error>.Event?
+    private var _terminalEvent: Signal<Element, Error>.Event?
 
-  public override func send(_ event: Event<Element, Error>) {
-    if event.isTerminal {
-      terminalEvent = event
-    } else {
-      lastEvent = event
+    public override init() {
+        super.init()
     }
-    super.send(event)
-  }
 
-  public override func willAdd(observer: @escaping Observer<Element, Error>) {
-    if let event = lastEvent {
-      observer(event)
+    public override func on(_ event: Signal<Element, Error>.Event) {
+        lock.lock(); defer { lock.unlock() }
+        guard !isTerminated else { return }
+        if event.isTerminal {
+            _terminalEvent = event
+        } else {
+            _lastEvent = event
+        }
+        super.on(event)
     }
-    if let event = terminalEvent {
-      observer(event)
+
+    public override func observe(with observer: @escaping (Signal<Element, Error>.Event) -> Void) -> Disposable {
+        lock.lock(); defer { lock.unlock() }
+        let (lastEvent, terminalEvent) = (_lastEvent, _terminalEvent)
+        if let event = lastEvent {
+            observer(event)
+        }
+        if let event = terminalEvent {
+            observer(event)
+        }
+        return super.observe(with: observer)
     }
-  }
 }
 
+/// A ReplayOneSubject compile-time guaranteed never to emit an error.
+public typealias SafeReplayOneSubject<Element> = ReplayOneSubject<Element, Never>
 
 /// A subject that replies accumulated sequence of loading values to each observer.
 public final class ReplayLoadingValueSubject<Val, LoadingError: Swift.Error, Error: Swift.Error>: Subject<LoadingState<Val, LoadingError>, Error> {
+    
+    private enum State {
+        case notStarted
+        case loading
+        case loadedOrFailedAtLeastOnce
+    }
 
-  private enum State {
-    case notStarted
-    case loading
-    case loadedOrFailedAtLeastOnce
-  }
+    private var _state: State = .notStarted
+    private var _buffer: ArraySlice<LoadingState<Val, LoadingError>> = []
+    private var _terminalEvent: Signal<LoadingState<Val, LoadingError>, Error>.Event?
 
-  private var state: State = .notStarted
-  private var buffer: ArraySlice<LoadingState<Val, LoadingError>> = []
-  private var terminalEvent: Event<LoadingState<Val, LoadingError>, Error>? = nil
-
-  public let bufferSize: Int
-
-  public init(bufferSize: Int = Int.max) {
-    self.bufferSize = bufferSize
-  }
-
-  public override func send(_ event: Event<LoadingState<Val, LoadingError>, Error>) {
-    switch event {
-    case .next(let loadingState):
-      switch loadingState {
-      case .loading:
-        if state == .notStarted {
-          state = .loading
+    public let bufferSize: Int
+    
+    public init(bufferSize: Int = Int.max) {
+        self.bufferSize = bufferSize
+    }
+    
+    public override func on(_ event: Signal<LoadingState<Val, LoadingError>, Error>.Event) {
+        lock.lock(); defer { lock.unlock() }
+        guard !isTerminated else { return }
+        switch event {
+        case .next(let loadingState):
+            switch loadingState {
+            case .loading:
+                if _state == .notStarted {
+                    _state = .loading
+                }
+            case .loaded:
+                _state = .loadedOrFailedAtLeastOnce
+                _buffer.append(loadingState)
+                _buffer = _buffer.suffix(bufferSize)
+            case .failed:
+                _state = .loadedOrFailedAtLeastOnce
+                _buffer = [loadingState]
+            }
+        case .failed, .completed:
+            _terminalEvent = event
         }
-      case .loaded:
-        state = .loadedOrFailedAtLeastOnce
-        buffer.append(loadingState)
-        buffer = buffer.suffix(bufferSize)
-      case .failed:
-        state = .loadedOrFailedAtLeastOnce
-        buffer = [loadingState]
-      }
-    case .failed, .completed:
-      terminalEvent = event
+        super.on(event)
     }
-    super.send(event)
-  }
 
-  public override func willAdd(observer: @escaping Observer<LoadingState<Val, LoadingError>, Error>) {
-    switch state {
-    case .notStarted:
-      break
-    case .loading:
-      observer(.next(.loading))
-    case .loadedOrFailedAtLeastOnce:
-      buffer.forEach { observer(.next($0)) }
+    public override func observe(with observer: @escaping (Signal<LoadingState<Val, LoadingError>, Error>.Event) -> Void) -> Disposable {
+        lock.lock(); defer { lock.unlock() }
+        switch _state {
+        case .notStarted:
+            break
+        case .loading:
+            observer(.next(.loading))
+        case .loadedOrFailedAtLeastOnce:
+            _buffer.forEach { observer(.next($0)) }
+        }
+        if let event = _terminalEvent {
+            observer(event)
+        }
+        return super.observe(with: observer)
     }
-    if let event = terminalEvent {
-      observer(event)
-    }
-  }
-}
-
-@available(*, deprecated, message: "All subjects now inherit 'Subject' that can be used in place of 'AnySubject'.")
-public final class AnySubject<Element, Error: Swift.Error>: SubjectProtocol {
-  private let baseObserve: (@escaping Observer<Element, Error>) -> Disposable
-  private let baseOn: Observer<Element, Error>
-
-  public let disposeBag = DisposeBag()
-
-  public init<S: SubjectProtocol>(base: S) where S.Element == Element, S.Error == Error {
-    baseObserve = base.observe
-    baseOn = base.on
-  }
-
-  public func on(_ event: Event<Element, Error>) {
-    return baseOn(event)
-  }
-
-  public func observe(with observer: @escaping Observer<Element, Error>) -> Disposable {
-    return baseObserve(observer)
-  }
 }
